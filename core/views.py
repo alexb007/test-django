@@ -1,3 +1,5 @@
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db.models.functions import JSONObject
 from django.http import Http404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
@@ -5,10 +7,9 @@ from rest_framework.filters import SearchFilter
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from itertools import groupby
 
 from core.models import Product, Review
-from core.serializers import ProductSerializer, ReviewSerializer
+from core.serializers import ProductSerializer
 
 
 class ProductList(ListModelMixin, RetrieveModelMixin, viewsets.GenericViewSet):
@@ -32,11 +33,14 @@ class ReviewApiView(APIView):
 
     def get(self, request, pk, format=None, *args, **kwargs):
         product = self.get_object(pk)
-        reviews = Review.objects.select_related('user', 'product').filter(product=product)
-        result = [
-            {
-                'rate': i,
-                'items': ReviewSerializer(list(j), many=True).data
-            } for i, j in groupby(reviews, lambda x: x.rate)
-        ]
-        return Response(result)
+        reviews = Review.objects.select_related(
+            'user', 'product'
+        ).prefetch_related('product__category').filter(product=product).values('rate').annotate(
+            items=ArrayAgg(JSONObject(
+                **{
+                    f'{f.name}': f.name for f in Review._meta.get_fields()
+                }
+            ),
+            )
+        )
+        return Response(reviews)
