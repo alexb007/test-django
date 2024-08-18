@@ -5,6 +5,7 @@ from rest_framework.filters import SearchFilter
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from itertools import groupby
 
 from core.models import Product, Review
 from core.serializers import ProductSerializer, ReviewSerializer
@@ -31,9 +32,11 @@ class ReviewApiView(APIView):
 
     def get(self, request, pk, format=None, *args, **kwargs):
         product = self.get_object(pk)
-        reviews = Review.objects.filter(product=product)
-        rates = reviews.values_list('rate', flat=True)
-        result = []
-        for rate in rates:
-            result.append({'rate': rate, 'items': ReviewSerializer(reviews.filter(product=product), many=True).data})
+        reviews = Review.objects.select_related('user', 'product').filter(product=product)
+        result = [
+            {
+                'rate': i,
+                'items': ReviewSerializer(list(j), many=True).data
+            } for i, j in groupby(reviews, lambda x: x.rate)
+        ]
         return Response(result)
